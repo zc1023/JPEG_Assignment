@@ -1,37 +1,42 @@
 import cv2
 import numpy as np
 from bitstream import BitStream
-from config import Q,ac_table,dc_table
+from config import *
 from encode import *
 
 class JPEG:
-    def __init__(self,input_image,output_file,g_scale) -> None:
+    def __init__(self,input_image,output_file,quality) -> None:
         self.image = input_image
         self.file = output_file
-        self.g_scale = g_scale
-        self.Q = Q
-        self.Q = np.array(np.floor((self.Q * self.g_scale ) / 8))
-        self.Q = np.where(self.Q == 0, 1, self.Q)
-        self.Q = np.where(self.Q > 255, 255, self.Q)
-        self.Q = self.Q.reshape([8, 8]).astype(int)
+        self.lu_quant = np.array(Q, dtype=int) *4
+        self.ch_quant = np.array(Q, dtype=int) *4
+        quality = np.clip(quality, 1, 100)
+        if quality < 50:
+            q_scale = 5000 / quality
+        else:
+            q_scale = 200 - quality * 2
+        self.lu_quant = np.array(np.floor((self.lu_quant * q_scale + 50) / 100))
+        self.lu_quant = np.where(self.lu_quant == 0, 1, self.lu_quant)
+        self.lu_quant = np.where(self.lu_quant > 255, 255, self.lu_quant)
+        self.lu_quant = self.lu_quant.reshape([8, 8]).astype(int)
+
+        self.ch_quant = np.array(np.floor((self.lu_quant * q_scale + 50) / 100))
+        self.ch_quant = np.where(self.ch_quant == 0, 1, self.ch_quant)
+        self.ch_quant = np.where(self.ch_quant > 255, 255, self.ch_quant)
+        self.ch_quant = self.ch_quant.reshape([8, 8]).astype(int)
+
         self.outputstream = BitStream()
 
 
-    def __image_split(self):
+    def __convert(self):
         '''
         args:
             image path
         returns:
             y,u,v
-            split yuv matrix
+            
         '''
-        def __matrix_split(a,step=8):
-            res=[]
-            for i in range(0,a.shape[1],step):
-                for j in range(0,a.shape[0],step): 
-                    res.append(a[i:i+step,j:j+step])
-            return(res)
-        
+
         image = cv2.imread(self.image)
 
         # print(image)
@@ -43,12 +48,10 @@ class JPEG:
         y = 0.299*r + 0.5870*g + 0.114*b - 127
         u = -0.1687*r - 0.3313*g + 0.5*b 
         v = 0.5*r - 0.4187*g - 0.0813*b 
-        y = __matrix_split(y)
-        u = __matrix_split(u)
-        v = __matrix_split(v)
-        self.y_channel = y
-        self.u_channel = u
-        self.v_channel = v
+
+        self.y_channel = y.astype(np.int32) 
+        self.u_channel = u.astype(np.int32) 
+        self.v_channel = v.astype(np.int32) 
 
     def __dct(self,image_block):
         '''
@@ -68,7 +71,7 @@ class JPEG:
         dct_matrix_T = dct_matrix.transpose()
         return np.matmul(np.matmul(dct_matrix,image_block),dct_matrix_T)
 
-    def __quantificate(self,dct_block):
+    def __quantificate(self,dct_block,lu = 1):
         '''
         args:
             8x8 dct_block
@@ -79,8 +82,10 @@ class JPEG:
         # Q = np.array(Q)
         # Q.shape = [8,8] #the quantificate matrix 
         # print(self.Q)
-        return (dct_block/(self.Q)).astype(int)
-        
+        if lu==1:
+            return np.rint(dct_block/(self.lu_quant)).astype(int)
+        else:
+            return np.rint(dct_block/self.ch_quant).astype(int)
 
 
 
@@ -92,14 +97,15 @@ class JPEG:
             output.write(bytes.fromhex('FFD8FFE000104A46494600010100000100010000'))
             
             output.write(bytes.fromhex('FFDB004300'))
-            self.Q = self.Q.reshape([64])
-            # print(self.Q)
+            self.lu_quant = self.lu_quant.reshape([64])
+            output.write(bytes(self.lu_quant.tolist()))
             
-            output.write(bytes(self.Q.tolist()))
+    
 
             output.write(bytes.fromhex('FFDB004301'))
-            output.write(bytes(self.Q.tolist()))
-
+            self.ch_quant = self.ch_quant.reshape([64])
+            output.write(bytes(self.ch_quant.tolist()))
+            
             output.write(bytes.fromhex('FFC0001108'))
             output.write(bytes.fromhex((hex(self.h)[2:].rjust(4,'0'))))
             output.write(bytes.fromhex((hex(self.w)[2:].rjust(4,'0'))))
@@ -115,6 +121,7 @@ class JPEG:
             '778797A7B7C7D7E7F738485868788898A8B8C8D8E8F839495969798999A9B9C9D9E9F92A3A4A5A6A7A8A9AAABACADAEAFA'
             ))
             output_len = self.outputstream.__len__()
+            print(output_len/8)
             pad = 8 - output_len%8
             if pad != 0:
                 self.outputstream.write(np.ones([pad]).tolist(),bool)
@@ -122,6 +129,8 @@ class JPEG:
                 bytes([255, 218, 0, 12, 3, 1, 0, 2, 17, 3, 17, 0, 63, 0])
             )
             output_bytes = self.outputstream.read(bytes)
+            
+            
             for i in range(len(output_bytes)):
                 output.write(bytes([output_bytes[i]]))
                 if output_bytes[i] == 255:
@@ -129,32 +138,53 @@ class JPEG:
             output.write(bytes([255,217]))
 
     def conpress(self):
-        self.__image_split()
+        self.__convert()
         channels = (self.y_channel,self.u_channel,self.v_channel)
         # print(len(self.y_channel))
-        for i in range(len(self.y_channel)):
-            pre_dc_component = [128,128,128]
-            for j,channel in enumerate(channels):
-                #dct + quant + zig
-                # print(channel[i].shape)
-                _dct = self.__dct(channel[i])
-                _quant = self.__quantificate(_dct)
+        count = 0
+        pre_dc_component = [0,0,0]
+        for y in range(0, self.h, 8):
+            for x in range(0, self.w, 8):
                 
-                # if  i==100 or i == 101:
-                #     print(_quant)
-                #dc encode
-                # input(_quant)
-                dc_component = _quant[0][0]
-                # print(dc_encode(dc_component,pre_component=pre_dc_component[j]))
-                self.outputstream.write(dc_encode(dc_component,pre_component=pre_dc_component[j],lu=j),bool)
-                pre_dc_component[j]=dc_component
+                for j,channel in enumerate(channels):
+                    #dct + quant + zig
+                    # print(channel[i].shape)
+                    count+=1
+                    _dct = self.__dct(channel[y:y+8,x:x+8])
+                    # print(_dct)
+                    _quant = self.__quantificate(_dct,j+1)
+                    
+                    # if  i==100 or i == 101:
+                    #     print(_quant)
+                    #dc encode
+                    
+                    dc_component = _quant[0][0]
+                    # print(dc_encode(dc_component,pre_component=pre_dc_component[j]))
+                    dc = dc_encode(dc_component,pre_component=pre_dc_component[j],lu=j+1)
+                    self.outputstream.write(dc_encode(dc_component,pre_component=pre_dc_component[j],lu=j+1),bool)
+                    if x == 8*20 and y == 8*4 and j==0:
+                        print(dc_component)
+                        print(pre_dc_component[j])
+                        # print(dc)
+                    pre_dc_component[j]=dc_component
 
-                #ac encode
-                self.outputstream.write(ac_encode(_quant,lu=j),bool)
-        
+                    #ac encode
+                    ac = ac_encode(_quant,lu=j+1)
+                    self.outputstream.write(ac_encode(_quant,lu=j+1),bool)
+                    i =20
+                    if x == 8*(i-1) and y == 8*4 and j==2:
+                        a1 = self.outputstream.__len__()
+                    if x == 8*i and y == 8*4 and j==0:
+                        print(_quant)
+                        
+                        print(dc)
+                        print(ac)
+                        a2= (self.outputstream.__len__())
+                        print(a2-a1)
+        print(count)
         #add jpeg head
         self.__write()
 
 if __name__ == "__main__":
-    jpg = JPEG('./data/2.png',"./data/output.jpg",1)
+    jpg = JPEG('./data/2.png',"./data/output.jpg",20)
     jpg.conpress()
