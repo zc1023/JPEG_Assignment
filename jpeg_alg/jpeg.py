@@ -5,22 +5,18 @@ from config import *
 from encode import *
 
 class JPEG:
-    def __init__(self,input_image,output_file,quality) -> None:
+    def __init__(self,input_image,output_file,g_scale) -> None:
         self.image = input_image
         self.file = output_file
-        self.lu_quant = np.array(Q, dtype=int) *4
-        self.ch_quant = np.array(Q, dtype=int) *4
-        quality = np.clip(quality, 1, 100)
-        if quality < 50:
-            q_scale = 5000 / quality
-        else:
-            q_scale = 200 - quality * 2
-        self.lu_quant = np.array(np.floor((self.lu_quant * q_scale + 50) / 100))
+        self.lu_quant = lu_quant
+        self.ch_quant = ch_quant
+
+        self.lu_quant = np.array(np.floor((self.lu_quant * g_scale) / 8))
         self.lu_quant = np.where(self.lu_quant == 0, 1, self.lu_quant)
         self.lu_quant = np.where(self.lu_quant > 255, 255, self.lu_quant)
         self.lu_quant = self.lu_quant.reshape([8, 8]).astype(int)
 
-        self.ch_quant = np.array(np.floor((self.lu_quant * q_scale + 50) / 100))
+        self.ch_quant = np.array(np.floor((self.ch_quant * g_scale ) / 8))
         self.ch_quant = np.where(self.ch_quant == 0, 1, self.ch_quant)
         self.ch_quant = np.where(self.ch_quant > 255, 255, self.ch_quant)
         self.ch_quant = self.ch_quant.reshape([8, 8]).astype(int)
@@ -45,7 +41,7 @@ class JPEG:
         # print(self.h,self.w)
         b, g, r = cv2.split(image)
 
-        y = 0.299*r + 0.5870*g + 0.114*b - 127
+        y = 0.299*r + 0.5870*g + 0.114*b -127
         u = -0.1687*r - 0.3313*g + 0.5*b 
         v = 0.5*r - 0.4187*g - 0.0813*b 
 
@@ -121,7 +117,7 @@ class JPEG:
             '778797A7B7C7D7E7F738485868788898A8B8C8D8E8F839495969798999A9B9C9D9E9F92A3A4A5A6A7A8A9AAABACADAEAFA'
             ))
             output_len = self.outputstream.__len__()
-            print(output_len/8)
+
             pad = 8 - output_len%8
             if pad != 0:
                 self.outputstream.write(np.ones([pad]).tolist(),bool)
@@ -141,7 +137,7 @@ class JPEG:
         self.__convert()
         channels = (self.y_channel,self.u_channel,self.v_channel)
         # print(len(self.y_channel))
-        count = 0
+
         pre_dc_component = [0,0,0]
         for y in range(0, self.h, 8):
             for x in range(0, self.w, 8):
@@ -149,7 +145,7 @@ class JPEG:
                 for j,channel in enumerate(channels):
                     #dct + quant + zig
                     # print(channel[i].shape)
-                    count+=1
+
                     _dct = self.__dct(channel[y:y+8,x:x+8])
                     # print(_dct)
                     _quant = self.__quantificate(_dct,j+1)
@@ -160,31 +156,19 @@ class JPEG:
                     
                     dc_component = _quant[0][0]
                     # print(dc_encode(dc_component,pre_component=pre_dc_component[j]))
-                    dc = dc_encode(dc_component,pre_component=pre_dc_component[j],lu=j+1)
+
                     self.outputstream.write(dc_encode(dc_component,pre_component=pre_dc_component[j],lu=j+1),bool)
-                    if x == 8*20 and y == 8*4 and j==0:
-                        print(dc_component)
-                        print(pre_dc_component[j])
-                        # print(dc)
+
                     pre_dc_component[j]=dc_component
 
                     #ac encode
-                    ac = ac_encode(_quant,lu=j+1)
+
                     self.outputstream.write(ac_encode(_quant,lu=j+1),bool)
-                    i =20
-                    if x == 8*(i-1) and y == 8*4 and j==2:
-                        a1 = self.outputstream.__len__()
-                    if x == 8*i and y == 8*4 and j==0:
-                        print(_quant)
-                        
-                        print(dc)
-                        print(ac)
-                        a2= (self.outputstream.__len__())
-                        print(a2-a1)
-        print(count)
+
+
         #add jpeg head
         self.__write()
 
 if __name__ == "__main__":
-    jpg = JPEG('./data/2.png',"./data/output.jpg",20)
+    jpg = JPEG('./data/input.png',"./figure/output8.jpg",64)
     jpg.conpress()

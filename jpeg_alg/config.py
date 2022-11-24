@@ -744,3 +744,8 @@ ch_quant = [17, 18, 24, 47, 99, 99, 99, 99,
             99, 99, 99, 99, 99, 99, 99, 99,
             99, 99, 99, 99, 99, 99, 99, 99,
             99, 99, 99, 99, 99, 99, 99, 99]
+
+lu_quant = np.array(lu_quant)
+lu_quant.shape = (8,8)
+ch_quant = np.array(ch_quant)
+ch_quant.shape = (8,8)
