@@ -22,17 +22,18 @@ def dc_encode(dc_component: int,pre_component = 128, lu = 1) -> str:
         size_code = DCLuminanceSizeToCode[size]
     else:
         size_code = DCChrominanceSizeToCode[size]
-    dc_code_string = size_code
+    dc_code_string += size_code
 
     amplirude_code = bin(np.abs(amplitude))[2:]
-    if amplitude >= 0:
-        dc_code_string += amplirude_code
-    else:
-        for i in amplirude_code:
-            if i == '0':
-                dc_code_string += '1'
-            if i == '1':
-                dc_code_string += '0'
+    if amplitude != 0:
+        if amplitude > 0:
+            dc_code_string += amplirude_code
+        else:
+            for i in amplirude_code:
+                if i == '0':
+                    dc_code_string += '1'
+                if i == '1':
+                    dc_code_string += '0'
 
     # pre_component = component
     return [int(i) for i in dc_code_string]
@@ -99,33 +100,37 @@ def ac_encode(dct_matrix,lu=1)->str:
     ac_component = z_scan(dct_matrix)
     zeronum = 0
     res = ''
-
-    for i,ac in enumerate(ac_component):
+    
+    for ac in ac_component:
         
         if ac != 0:
             # print(ac)
-            res += ac_encode_exec(zeronum,ac,lu=lu)
+            if zeronum > 15:
+                for _ in range(zeronum//15):
+                    res += ac_encode_exec(15,0,lu=lu)
+            res += ac_encode_exec(zeronum%15,ac,lu=lu)
             zeronum = 0
         elif ac == 0:
             zeronum += 1
-            if zeronum == 15:
-                res += ac_encode_exec(zeronum,0,lu=lu)
-                zeronum = 0
 
-    res += ac_encode_exec(0,0,lu=lu)
+    if ac == 0:
+        res += ac_encode_exec(0,0,lu=lu)
     # print(res)
     return [int(i) for i in res]
 
 if __name__ =='__main__':
-    test_m = np.array([[426,-1,2,-2,1,0,0,0]
-,[0,1,4,0,-1,1,0,0]
-,[-3,-2,0,1,-1,0,1,1]
-,[2,0,-1,1,0,-1,0,0]
-,[0,1,0,0,0,0,1,0]
-,[-1,-1,0,-2,-1,0,1,0]
-,[1,0,3,0,0,-1,0,0]
-,[0,-2,0,0,0,0,0,0]])
+    test_m = np.array(
+        [[-6,-3,3,0,0,0,0,0],
+[0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,1]]
+ )
     test_m.shape=(8,8)
     print(len(ac_encode(test_m,lu=2)))
     print((ac_encode(test_m,lu=2)))
-    # print(dc_encode(0))
+    # for i in range(10):
+    #     print(dc_encode(-117,pre_component=-117,lu=2+1))
